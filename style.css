@@ -11,6 +11,7 @@ html, body {
   font-family: Arial, sans-serif;
 }
 
+/* Важно: dvh для мобильных */
 #app {
   position: relative;
   width: 100%;
@@ -20,39 +21,45 @@ html, body {
   background: black;
 }
 
-/* Базовое видео — зеркальное */
+/* Камера */
 #video {
   position: absolute;
   inset: 0;
   width: 100%;
   height: 100%;
   object-fit: cover;
-  background: black;
+
+  /* Зеркалим только видео */
   transform: scaleX(-1);
+
   z-index: 1;
+  background: black;
 }
 
-/* Canvas сверху, НЕ зеркалим через CSS */
+/* Canvas поверх */
 #effectCanvas {
   position: absolute;
   inset: 0;
   width: 100%;
   height: 100%;
-  background: transparent;
   pointer-events: none;
   z-index: 2;
 }
 
+/* Подписи */
 #labelBefore,
 #labelAfter {
   position: absolute;
   top: 20px;
   z-index: 10;
+
   color: white;
   font-size: 16px;
   font-weight: 600;
   opacity: 0.9;
+
   pointer-events: none;
+
   text-shadow: 0 1px 4px rgba(0, 0, 0, 0.65);
 }
 
@@ -64,39 +71,53 @@ html, body {
   right: 20px;
 }
 
+/* Разделительная линия */
 #divider {
   position: absolute;
   top: 0;
   bottom: 0;
   left: 50%;
+
   width: 2px;
   background: rgba(255, 255, 255, 0.9);
+
   box-shadow: 0 0 8px rgba(255, 255, 255, 0.45);
+
   transform: translateX(-50%);
+
   touch-action: none;
   cursor: ew-resize;
+
   z-index: 20;
 }
 
+/* Хэндл */
 #handle {
   position: absolute;
   top: 50%;
   left: 50%;
+
   width: 44px;
   height: 44px;
+
   border-radius: 50%;
   background: white;
+
   transform: translate(-50%, -50%);
+  
   box-shadow: 0 4px 12px rgba(0, 0, 0, 0.3);
 }
 
+/* Стрелки */
 #handle::before,
 #handle::after {
   content: "";
   position: absolute;
   top: 50%;
+
   width: 7px;
   height: 7px;
+
   border-top: 2px solid #444;
   border-right: 2px solid #444;
 }
@@ -111,20 +132,32 @@ html, body {
   transform: translateY(-50%) rotate(45deg);
 }
 
+/* Нажатие */
+#handle:active {
+  transform: translate(-50%, -50%) scale(0.96);
+}
+
+/* Подсказка */
 #hint {
   position: absolute;
   bottom: 40px;
   left: 50%;
   transform: translateX(-50%);
+
   z-index: 15;
+
   color: white;
   font-size: 14px;
   opacity: 0.85;
+
   padding: 10px 16px;
   border-radius: 20px;
+
   background: rgba(0, 0, 0, 0.4);
   backdrop-filter: blur(6px);
+
   pointer-events: none;
+
   transition: opacity 0.6s ease;
 }
 

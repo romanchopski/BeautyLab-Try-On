@@ -1,0 +1,82 @@
+* {
+  box-sizing: border-box;
+  margin: 0;
+  padding: 0;
+}
+
+html, body {
+  width: 100%;
+  height: 100%;
+  background: black;
+}
+
+#app {
+  position: relative;
+  width: 100%;
+  height: 100vh;
+  overflow: hidden;
+  background: black;
+}
+
+#videoStage {
+  position: absolute;
+  inset: 0;
+  transform: scaleX(-1);
+  transform-origin: center;
+}
+
+#video {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  background: black;
+}
+
+#labelBefore,
+#labelAfter {
+  position: absolute;
+  top: 20px;
+  z-index: 10;
+  color: white;
+  font-size: 16px;
+  font-weight: 600;
+  opacity: 0.9;
+  pointer-events: none;
+  text-shadow: 0 1px 4px rgba(0, 0, 0, 0.65);
+}
+
+#labelBefore {
+  left: 20px;
+}
+
+#labelAfter {
+  right: 20px;
+}
+
+#divider {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  left: 50%;
+  width: 2px;
+  background: rgba(255, 255, 255, 0.9);
+  box-shadow: 0 0 8px rgba(255, 255, 255, 0.45);
+  transform: translateX(-50%);
+  touch-action: none;
+  cursor: ew-resize;
+  z-index: 20;
+}
+
+#handle {
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  width: 44px;
+  height: 44px;
+  border-radius: 50%;
+  background: white;
+  transform: translate(-50%, -50%);
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.3);
+}

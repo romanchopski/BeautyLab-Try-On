@@ -41,8 +41,14 @@ async function startCamera() {
 }
 
 function resizeCanvas() {
-  canvas.width = window.innerWidth;
-  canvas.height = window.innerHeight;
+  const dpr = window.devicePixelRatio || 1;
+  canvas.width = Math.round(window.innerWidth * dpr);
+  canvas.height = Math.round(window.innerHeight * dpr);
+  canvas.style.width = `${window.innerWidth}px`;
+  canvas.style.height = `${window.innerHeight}px`;
+
+  // Работаем в CSS-пикселях
+  ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
   updateDivider(dividerX);
 }
 
@@ -59,20 +65,26 @@ function renderEffect() {
     return;
   }
 
-  const w = canvas.width;
-  const h = canvas.height;
+  const w = window.innerWidth;
+  const h = window.innerHeight;
 
   ctx.clearRect(0, 0, w, h);
 
-  // Рисуем только правую часть after
+  // Рисуем after только справа от линии
   ctx.save();
   ctx.beginPath();
   ctx.rect(dividerX, 0, w - dividerX, h);
   ctx.clip();
 
-  // Мягкий заметный эффект
+  // Мягкий демонстрационный эффект
   ctx.filter = "blur(2px) brightness(1.05) contrast(1.06) saturate(1.06)";
+
+  // Зеркалим картинку ВНУТРИ canvas, чтобы совпала с зеркальным video
+  ctx.save();
+  ctx.translate(w, 0);
+  ctx.scale(-1, 1);
   ctx.drawImage(video, 0, 0, w, h);
+  ctx.restore();
 
   ctx.restore();
 

@@ -42,13 +42,14 @@ async function startCamera() {
 
 function resizeCanvas() {
   const dpr = window.devicePixelRatio || 1;
+
   canvas.width = Math.round(window.innerWidth * dpr);
   canvas.height = Math.round(window.innerHeight * dpr);
   canvas.style.width = `${window.innerWidth}px`;
   canvas.style.height = `${window.innerHeight}px`;
 
-  // Работаем в CSS-пикселях
   ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+
   updateDivider(dividerX);
 }
 
@@ -57,6 +58,46 @@ function updateDivider(x) {
   const clampedX = Math.max(0, Math.min(width, x));
   dividerX = clampedX;
   divider.style.left = `${clampedX}px`;
+}
+
+/**
+ * Рисует video в canvas так же, как object-fit: cover
+ */
+function drawVideoCover(context, sourceVideo, destW, destH) {
+  const videoW = sourceVideo.videoWidth;
+  const videoH = sourceVideo.videoHeight;
+
+  if (!videoW || !videoH) return;
+
+  const videoRatio = videoW / videoH;
+  const destRatio = destW / destH;
+
+  let sx = 0;
+  let sy = 0;
+  let sWidth = videoW;
+  let sHeight = videoH;
+
+  if (videoRatio > destRatio) {
+    // Видео шире контейнера: режем по бокам
+    sWidth = videoH * destRatio;
+    sx = (videoW - sWidth) / 2;
+  } else {
+    // Видео выше контейнера: режем сверху/снизу
+    sHeight = videoW / destRatio;
+    sy = (videoH - sHeight) / 2;
+  }
+
+  context.drawImage(
+    sourceVideo,
+    sx,
+    sy,
+    sWidth,
+    sHeight,
+    0,
+    0,
+    destW,
+    destH
+  );
 }
 
 function renderEffect() {
@@ -70,22 +111,23 @@ function renderEffect() {
 
   ctx.clearRect(0, 0, w, h);
 
-  // Рисуем after только справа от линии
+  // After только справа от линии
   ctx.save();
   ctx.beginPath();
   ctx.rect(dividerX, 0, w - dividerX, h);
   ctx.clip();
 
-  // Мягкий демонстрационный эффект
+  // Эффект
   ctx.filter = "blur(2px) brightness(1.05) contrast(1.06) saturate(1.06)";
 
-  // Зеркалим картинку ВНУТРИ canvas, чтобы совпала с зеркальным video
+  // Зеркалим внутри canvas, чтобы совпадало с #video
   ctx.save();
   ctx.translate(w, 0);
   ctx.scale(-1, 1);
-  ctx.drawImage(video, 0, 0, w, h);
-  ctx.restore();
 
+  drawVideoCover(ctx, video, w, h);
+
+  ctx.restore();
   ctx.restore();
 
   animationFrameId = requestAnimationFrame(renderEffect);

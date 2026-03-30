@@ -1,6 +1,7 @@
-import vision from "https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@0.10.14";
-
-const { FaceLandmarker, FilesetResolver } = vision;
+import {
+  FaceLandmarker,
+  FilesetResolver
+} from "https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@0.10.14/vision_bundle.mjs";
 
 const video = document.getElementById("video");
 const canvas = document.getElementById("effectCanvas");
@@ -17,54 +18,6 @@ let animationFrameId = null;
 let faceLandmarker = null;
 let lastFaceResult = null;
 let lastVideoTime = -1;
-
-async function createFaceLandmarker() {
-  const filesetResolver = await FilesetResolver.forVisionTasks(
-    "https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@0.10.14/wasm"
-  );
-
-  faceLandmarker = await FaceLandmarker.createFromOptions(filesetResolver, {
-    baseOptions: {
-      modelAssetPath:
-        "https://storage.googleapis.com/mediapipe-models/face_landmarker/face_landmarker/float16/1/face_landmarker.task"
-    },
-    outputFaceBlendshapes: false,
-    runningMode: "VIDEO",
-    numFaces: 1
-  });
-
-  console.log("FaceLandmarker ready");
-}
-
-async function startCamera() {
-  try {
-    const stream = await navigator.mediaDevices.getUserMedia({
-      video: {
-        facingMode: "user"
-      },
-      audio: false
-    });
-
-    video.muted = true;
-    video.playsInline = true;
-    video.setAttribute("playsinline", "");
-    video.setAttribute("webkit-playsinline", "");
-    video.srcObject = stream;
-
-    video.onloadedmetadata = async () => {
-      try {
-        await video.play();
-        resizeCanvas();
-        startRenderLoop();
-        console.log("Camera started");
-      } catch (e) {
-        console.warn("Video play warning:", e);
-      }
-    };
-  } catch (error) {
-    console.error("Camera access error:", error);
-  }
-}
 
 function getViewportSize() {
   if (window.visualViewport) {
@@ -101,16 +54,10 @@ function updateDivider(x) {
   divider.style.left = `${clampedX}px`;
 }
 
-/**
- * Рисует video в canvas так же, как object-fit: cover
- */
-function getCoverDrawData(sourceVideo, destW, destH) {
+function drawVideoCover(context, sourceVideo, destW, destH) {
   const videoW = sourceVideo.videoWidth;
   const videoH = sourceVideo.videoHeight;
-
-  if (!videoW || !videoH) {
-    return null;
-  }
+  if (!videoW || !videoH) return;
 
   const videoRatio = videoW / videoH;
   const destRatio = destW / destH;
@@ -128,52 +75,66 @@ function getCoverDrawData(sourceVideo, destW, destH) {
     sy = (videoH - sHeight) / 2;
   }
 
-  return {
-    sx,
-    sy,
-    sWidth,
-    sHeight,
-    dx: 0,
-    dy: 0,
-    dWidth: destW,
-    dHeight: destH
-  };
-}
-
-function drawVideoCover(context, sourceVideo, destW, destH) {
-  const drawData = getCoverDrawData(sourceVideo, destW, destH);
-  if (!drawData) return;
-
   context.drawImage(
     sourceVideo,
-    drawData.sx,
-    drawData.sy,
-    drawData.sWidth,
-    drawData.sHeight,
-    drawData.dx,
-    drawData.dy,
-    drawData.dWidth,
-    drawData.dHeight
+    sx, sy, sWidth, sHeight,
+    0, 0, destW, destH
   );
+}
+
+async function createFaceLandmarker() {
+  const filesetResolver = await FilesetResolver.forVisionTasks(
+    "https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@0.10.14/wasm"
+  );
+
+  faceLandmarker = await FaceLandmarker.createFromOptions(filesetResolver, {
+    baseOptions: {
+      modelAssetPath:
+        "https://storage.googleapis.com/mediapipe-models/face_landmarker/face_landmarker/float16/1/face_landmarker.task"
+    },
+    runningMode: "VIDEO",
+    numFaces: 1,
+    outputFaceBlendshapes: false
+  });
+
+  console.log("FaceLandmarker ready");
+}
+
+async function startCamera() {
+  const stream = await navigator.mediaDevices.getUserMedia({
+    video: { facingMode: "user" },
+    audio: false
+  });
+
+  video.muted = true;
+  video.playsInline = true;
+  video.setAttribute("playsinline", "");
+  video.setAttribute("webkit-playsinline", "");
+  video.srcObject = stream;
+
+  await new Promise((resolve) => {
+    video.onloadedmetadata = resolve;
+  });
+
+  await video.play();
+  resizeCanvas();
+  startRenderLoop();
+  console.log("Camera started");
 }
 
 function updateFaceDetection() {
   if (!faceLandmarker) return;
   if (video.readyState < 2) return;
-
   if (video.currentTime === lastVideoTime) return;
-  lastVideoTime = video.currentTime;
 
-  const nowMs = performance.now();
-  lastFaceResult = faceLandmarker.detectForVideo(video, nowMs);
+  lastVideoTime = video.currentTime;
+  lastFaceResult = faceLandmarker.detectForVideo(video, performance.now());
 }
 
 function getFaceRectOnCanvas(destW, destH) {
   if (!lastFaceResult?.faceLandmarks?.length) return null;
 
   const landmarks = lastFaceResult.faceLandmarks[0];
-  const drawData = getCoverDrawData(video, destW, destH);
-  if (!drawData) return null;
 
   let minX = Infinity;
   let minY = Infinity;
@@ -187,34 +148,23 @@ function getFaceRectOnCanvas(destW, destH) {
     maxY = Math.max(maxY, p.y);
   }
 
-  // координаты внутри обрезанного видео-фрагмента
-  const faceLeftInSource = minX * video.videoWidth;
-  const faceTopInSource = minY * video.videoHeight;
-  const faceRightInSource = maxX * video.videoWidth;
-  const faceBottomInSource = maxY * video.videoHeight;
+  // Отражаем по X, потому что базовое видео зеркальное
+  const mirroredMinX = 1 - maxX;
+  const mirroredMaxX = 1 - minX;
 
-  // переводим в координаты обрезанного cover-фрагмента
-  const x1 = ((faceLeftInSource - drawData.sx) / drawData.sWidth) * destW;
-  const y1 = ((faceTopInSource - drawData.sy) / drawData.sHeight) * destH;
-  const x2 = ((faceRightInSource - drawData.sx) / drawData.sWidth) * destW;
-  const y2 = ((faceBottomInSource - drawData.sy) / drawData.sHeight) * destH;
+  const x = mirroredMinX * destW;
+  const y = minY * destH;
+  const width = (mirroredMaxX - mirroredMinX) * destW;
+  const height = (maxY - minY) * destH;
 
-  // т.к. базовое видео у нас зеркальное, отражаем прямоугольник по горизонтали
-  const mirroredX1 = destW - x2;
-  const mirroredX2 = destW - x1;
-
-  const faceWidth = mirroredX2 - mirroredX1;
-  const faceHeight = y2 - y1;
-
-  // небольшой запас вокруг лица
-  const padX = faceWidth * 0.18;
-  const padY = faceHeight * 0.22;
+  const padX = width * 0.18;
+  const padY = height * 0.22;
 
   return {
-    x: mirroredX1 - padX,
-    y: y1 - padY,
-    width: faceWidth + padX * 2,
-    height: faceHeight + padY * 2
+    x: x - padX,
+    y: y - padY,
+    width: width + padX * 2,
+    height: height + padY * 2
   };
 }
 
@@ -230,7 +180,7 @@ function renderEffect() {
 
   ctx.clearRect(0, 0, w, h);
 
-  // after только справа от линии
+  // Правая часть after
   ctx.save();
   ctx.beginPath();
   ctx.rect(dividerX, 0, w - dividerX, h);
@@ -245,13 +195,15 @@ function renderEffect() {
     ctx.clip();
 
     ctx.filter = "blur(2px) brightness(1.05) contrast(1.06) saturate(1.06)";
+
+    // Зеркалим внутри canvas, чтобы совпадало с видео
+    ctx.save();
+    ctx.translate(w, 0);
+    ctx.scale(-1, 1);
     drawVideoCover(ctx, video, w, h);
+    ctx.restore();
 
     ctx.restore();
-  } else {
-    // если лицо ещё не найдено — временно рисуем старый after на весь правый участок
-    ctx.filter = "blur(2px) brightness(1.05) contrast(1.06) saturate(1.06)";
-    drawVideoCover(ctx, video, w, h);
   }
 
   ctx.restore();
@@ -281,32 +233,31 @@ function onPointerMove(e) {
 }
 
 divider.addEventListener("pointerdown", startDrag);
-
-if (handle) {
-  handle.addEventListener("pointerdown", startDrag);
-}
+handle?.addEventListener("pointerdown", startDrag);
 
 document.addEventListener("pointermove", onPointerMove);
 document.addEventListener("pointerup", stopDrag);
 document.addEventListener("pointercancel", stopDrag);
 
 window.addEventListener("resize", resizeCanvas);
-
 if (window.visualViewport) {
   window.visualViewport.addEventListener("resize", resizeCanvas);
   window.visualViewport.addEventListener("scroll", resizeCanvas);
 }
 
 setTimeout(() => {
-  if (hint) {
-    hint.classList.add("hidden");
-  }
+  hint?.classList.add("hidden");
 }, 2500);
 
 async function init() {
-  await createFaceLandmarker();
-  await startCamera();
-  updateDivider(window.innerWidth / 2);
+  try {
+    await createFaceLandmarker();
+    await startCamera();
+    updateDivider(window.innerWidth / 2);
+  } catch (error) {
+    console.error("Init error:", error);
+    alert("Failed to initialize camera or face tracking. Open console for details.");
+  }
 }
 
 init();

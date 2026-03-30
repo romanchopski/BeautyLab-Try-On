@@ -40,13 +40,28 @@ async function startCamera() {
   }
 }
 
+function getViewportSize() {
+  if (window.visualViewport) {
+    return {
+      width: Math.round(window.visualViewport.width),
+      height: Math.round(window.visualViewport.height)
+    };
+  }
+
+  return {
+    width: window.innerWidth,
+    height: window.innerHeight
+  };
+}
+
 function resizeCanvas() {
+  const { width, height } = getViewportSize();
   const dpr = window.devicePixelRatio || 1;
 
-  canvas.width = Math.round(window.innerWidth * dpr);
-  canvas.height = Math.round(window.innerHeight * dpr);
-  canvas.style.width = `${window.innerWidth}px`;
-  canvas.style.height = `${window.innerHeight}px`;
+  canvas.width = Math.round(width * dpr);
+  canvas.height = Math.round(height * dpr);
+  canvas.style.width = `${width}px`;
+  canvas.style.height = `${height}px`;
 
   ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
 
@@ -54,7 +69,7 @@ function resizeCanvas() {
 }
 
 function updateDivider(x) {
-  const width = window.innerWidth;
+  const { width } = getViewportSize();
   const clampedX = Math.max(0, Math.min(width, x));
   dividerX = clampedX;
   divider.style.left = `${clampedX}px`;
@@ -106,12 +121,11 @@ function renderEffect() {
     return;
   }
 
-  const w = window.innerWidth;
-  const h = window.innerHeight;
+  const { width: w, height: h } = getViewportSize();
 
   ctx.clearRect(0, 0, w, h);
 
-  // After только справа от линии
+  // Рисуем after только справа от линии
   ctx.save();
   ctx.beginPath();
   ctx.rect(dividerX, 0, w - dividerX, h);
@@ -120,7 +134,7 @@ function renderEffect() {
   // Эффект
   ctx.filter = "blur(2px) brightness(1.05) contrast(1.06) saturate(1.06)";
 
-  // Зеркалим внутри canvas, чтобы совпадало с #video
+  // Зеркалим внутри canvas, чтобы совпадало с зеркальным video
   ctx.save();
   ctx.translate(w, 0);
   ctx.scale(-1, 1);
@@ -165,6 +179,11 @@ document.addEventListener("pointerup", stopDrag);
 document.addEventListener("pointercancel", stopDrag);
 
 window.addEventListener("resize", resizeCanvas);
+
+if (window.visualViewport) {
+  window.visualViewport.addEventListener("resize", resizeCanvas);
+  window.visualViewport.addEventListener("scroll", resizeCanvas);
+}
 
 setTimeout(() => {
   if (hint) {

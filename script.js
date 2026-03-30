@@ -1,3 +1,7 @@
+import vision from "https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@0.10.14";
+
+const { FaceLandmarker, FilesetResolver } = vision;
+
 const video = document.getElementById("video");
 const canvas = document.getElementById("effectCanvas");
 const ctx = canvas.getContext("2d");
@@ -9,6 +13,28 @@ const hint = document.getElementById("hint");
 let isDragging = false;
 let dividerX = window.innerWidth / 2;
 let animationFrameId = null;
+
+let faceLandmarker = null;
+let lastFaceResult = null;
+let lastVideoTime = -1;
+
+async function createFaceLandmarker() {
+  const filesetResolver = await FilesetResolver.forVisionTasks(
+    "https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@0.10.14/wasm"
+  );
+
+  faceLandmarker = await FaceLandmarker.createFromOptions(filesetResolver, {
+    baseOptions: {
+      modelAssetPath:
+        "https://storage.googleapis.com/mediapipe-models/face_landmarker/face_landmarker/float16/1/face_landmarker.task"
+    },
+    outputFaceBlendshapes: false,
+    runningMode: "VIDEO",
+    numFaces: 1
+  });
+
+  console.log("FaceLandmarker ready");
+}
 
 async function startCamera() {
   try {
@@ -78,11 +104,13 @@ function updateDivider(x) {
 /**
  * Рисует video в canvas так же, как object-fit: cover
  */
-function drawVideoCover(context, sourceVideo, destW, destH) {
+function getCoverDrawData(sourceVideo, destW, destH) {
   const videoW = sourceVideo.videoWidth;
   const videoH = sourceVideo.videoHeight;
 
-  if (!videoW || !videoH) return;
+  if (!videoW || !videoH) {
+    return null;
+  }
 
   const videoRatio = videoW / videoH;
   const destRatio = destW / destH;
@@ -93,26 +121,101 @@ function drawVideoCover(context, sourceVideo, destW, destH) {
   let sHeight = videoH;
 
   if (videoRatio > destRatio) {
-    // Видео шире контейнера: режем по бокам
     sWidth = videoH * destRatio;
     sx = (videoW - sWidth) / 2;
   } else {
-    // Видео выше контейнера: режем сверху/снизу
     sHeight = videoW / destRatio;
     sy = (videoH - sHeight) / 2;
   }
 
-  context.drawImage(
-    sourceVideo,
+  return {
     sx,
     sy,
     sWidth,
     sHeight,
-    0,
-    0,
-    destW,
-    destH
+    dx: 0,
+    dy: 0,
+    dWidth: destW,
+    dHeight: destH
+  };
+}
+
+function drawVideoCover(context, sourceVideo, destW, destH) {
+  const drawData = getCoverDrawData(sourceVideo, destW, destH);
+  if (!drawData) return;
+
+  context.drawImage(
+    sourceVideo,
+    drawData.sx,
+    drawData.sy,
+    drawData.sWidth,
+    drawData.sHeight,
+    drawData.dx,
+    drawData.dy,
+    drawData.dWidth,
+    drawData.dHeight
   );
+}
+
+function updateFaceDetection() {
+  if (!faceLandmarker) return;
+  if (video.readyState < 2) return;
+
+  if (video.currentTime === lastVideoTime) return;
+  lastVideoTime = video.currentTime;
+
+  const nowMs = performance.now();
+  lastFaceResult = faceLandmarker.detectForVideo(video, nowMs);
+}
+
+function getFaceRectOnCanvas(destW, destH) {
+  if (!lastFaceResult?.faceLandmarks?.length) return null;
+
+  const landmarks = lastFaceResult.faceLandmarks[0];
+  const drawData = getCoverDrawData(video, destW, destH);
+  if (!drawData) return null;
+
+  let minX = Infinity;
+  let minY = Infinity;
+  let maxX = -Infinity;
+  let maxY = -Infinity;
+
+  for (const p of landmarks) {
+    minX = Math.min(minX, p.x);
+    minY = Math.min(minY, p.y);
+    maxX = Math.max(maxX, p.x);
+    maxY = Math.max(maxY, p.y);
+  }
+
+  // координаты внутри обрезанного видео-фрагмента
+  const faceLeftInSource = minX * video.videoWidth;
+  const faceTopInSource = minY * video.videoHeight;
+  const faceRightInSource = maxX * video.videoWidth;
+  const faceBottomInSource = maxY * video.videoHeight;
+
+  // переводим в координаты обрезанного cover-фрагмента
+  const x1 = ((faceLeftInSource - drawData.sx) / drawData.sWidth) * destW;
+  const y1 = ((faceTopInSource - drawData.sy) / drawData.sHeight) * destH;
+  const x2 = ((faceRightInSource - drawData.sx) / drawData.sWidth) * destW;
+  const y2 = ((faceBottomInSource - drawData.sy) / drawData.sHeight) * destH;
+
+  // т.к. базовое видео у нас зеркальное, отражаем прямоугольник по горизонтали
+  const mirroredX1 = destW - x2;
+  const mirroredX2 = destW - x1;
+
+  const faceWidth = mirroredX2 - mirroredX1;
+  const faceHeight = y2 - y1;
+
+  // небольшой запас вокруг лица
+  const padX = faceWidth * 0.18;
+  const padY = faceHeight * 0.22;
+
+  return {
+    x: mirroredX1 - padX,
+    y: y1 - padY,
+    width: faceWidth + padX * 2,
+    height: faceHeight + padY * 2
+  };
 }
 
 function renderEffect() {
@@ -123,25 +226,34 @@ function renderEffect() {
 
   const { width: w, height: h } = getViewportSize();
 
+  updateFaceDetection();
+
   ctx.clearRect(0, 0, w, h);
 
-  // Рисуем after только справа от линии
+  // after только справа от линии
   ctx.save();
   ctx.beginPath();
   ctx.rect(dividerX, 0, w - dividerX, h);
   ctx.clip();
 
-  // Эффект
-  ctx.filter = "blur(2px) brightness(1.05) contrast(1.06) saturate(1.06)";
+  const faceRect = getFaceRectOnCanvas(w, h);
 
-  // Зеркалим внутри canvas, чтобы совпадало с зеркальным video
-  ctx.save();
-  ctx.translate(w, 0);
-  ctx.scale(-1, 1);
+  if (faceRect) {
+    ctx.save();
+    ctx.beginPath();
+    ctx.rect(faceRect.x, faceRect.y, faceRect.width, faceRect.height);
+    ctx.clip();
 
-  drawVideoCover(ctx, video, w, h);
+    ctx.filter = "blur(2px) brightness(1.05) contrast(1.06) saturate(1.06)";
+    drawVideoCover(ctx, video, w, h);
 
-  ctx.restore();
+    ctx.restore();
+  } else {
+    // если лицо ещё не найдено — временно рисуем старый after на весь правый участок
+    ctx.filter = "blur(2px) brightness(1.05) contrast(1.06) saturate(1.06)";
+    drawVideoCover(ctx, video, w, h);
+  }
+
   ctx.restore();
 
   animationFrameId = requestAnimationFrame(renderEffect);
@@ -191,5 +303,10 @@ setTimeout(() => {
   }
 }, 2500);
 
-startCamera();
-updateDivider(window.innerWidth / 2);
+async function init() {
+  await createFaceLandmarker();
+  await startCamera();
+  updateDivider(window.innerWidth / 2);
+}
+
+init();

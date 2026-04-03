@@ -23,6 +23,9 @@ const maskCtx = maskCanvas.getContext("2d", { alpha: true });
 const rawMaskCanvas = document.createElement("canvas");
 const rawMaskCtx = rawMaskCanvas.getContext("2d", { alpha: true });
 
+const glowCanvas = document.createElement("canvas");
+const glowCtx = glowCanvas.getContext("2d", { alpha: true });
+
 let isDragging = false;
 let dividerX = window.innerWidth / 2;
 let animationFrameId = null;
@@ -43,15 +46,17 @@ const RIGHT_EYE = [33, 7, 163, 144, 145, 153, 154, 155, 133, 173, 157, 158, 159,
 const OUTER_LIPS = [61, 146, 91, 181, 84, 17, 314, 405, 321, 375, 291, 308, 324, 318, 402, 317, 14, 87, 178, 88, 95, 185, 40, 39, 37, 0, 267, 269, 270, 409, 415, 310, 311, 312, 13, 82, 81, 42, 183, 78];
 
 const EFFECT = {
-  featherBlurPx: 14,
+  featherBlurPx: 15,
   landmarkSmoothing: 0.72,
-  skinBlurPx: 2.4,
-  smoothMix: 0.34,
-  toneMix: 0.12,
+  skinBlurPx: 2.1,
+  smoothMix: 0.28,
+  toneMix: 0.13,
   highlightMix: 0.08,
+  warmMix: 0.08,
+  glowMix: 0.12,
   maskExpand: 1.06,
   eyeExpand: 1.22,
-  lipExpand: 1.10
+  lipExpand: 1.1
 };
 
 function getViewportSize() {
@@ -81,12 +86,14 @@ function resizeCanvas() {
   canvas.height = Math.round(height * dpr);
   canvas.style.width = `${width}px`;
   canvas.style.height = `${height}px`;
+
   ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
 
   setCanvasSize(sourceCanvas, width, height);
   setCanvasSize(effectCanvasOffscreen, width, height);
   setCanvasSize(maskCanvas, width, height);
   setCanvasSize(rawMaskCanvas, width, height);
+  setCanvasSize(glowCanvas, width, height);
 
   updateDivider(dividerX);
 }
@@ -127,14 +134,8 @@ function drawVideoCover(context, sourceVideo, destW, destH) {
 
   context.drawImage(
     sourceVideo,
-    sx,
-    sy,
-    sWidth,
-    sHeight,
-    0,
-    0,
-    destW,
-    destH
+    sx, sy, sWidth, sHeight,
+    0, 0, destW, destH
   );
 }
 
@@ -200,7 +201,11 @@ function updateFaceDetection() {
   }
 
   if (!smoothedLandmarks || smoothedLandmarks.length !== landmarks.length) {
-    smoothedLandmarks = landmarks.map((p) => ({ x: p.x, y: p.y, z: p.z ?? 0 }));
+    smoothedLandmarks = landmarks.map((p) => ({
+      x: p.x,
+      y: p.y,
+      z: p.z ?? 0
+    }));
     return;
   }
 
@@ -240,17 +245,23 @@ function getPolygon(indices, width, height) {
 
 function getPolygonCenter(points) {
   if (!points.length) return { x: 0, y: 0 };
+
   let x = 0;
   let y = 0;
   for (const p of points) {
     x += p.x;
     y += p.y;
   }
-  return { x: x / points.length, y: y / points.length };
+
+  return {
+    x: x / points.length,
+    y: y / points.length
+  };
 }
 
 function expandPolygon(points, scale = 1) {
   if (!points.length || scale === 1) return points;
+
   const center = getPolygonCenter(points);
   return points.map((p) => ({
     x: center.x + (p.x - center.x) * scale,
@@ -260,6 +271,7 @@ function expandPolygon(points, scale = 1) {
 
 function drawPolygonPath(context, points) {
   if (!points.length) return;
+
   context.beginPath();
   context.moveTo(points[0].x, points[0].y);
   for (let i = 1; i < points.length; i++) {
@@ -286,12 +298,16 @@ function buildSkinMask(width, height) {
   rawMaskCtx.fill();
 
   rawMaskCtx.globalCompositeOperation = "destination-out";
+
   drawPolygonPath(rawMaskCtx, leftEye);
   rawMaskCtx.fill();
+
   drawPolygonPath(rawMaskCtx, rightEye);
   rawMaskCtx.fill();
+
   drawPolygonPath(rawMaskCtx, lips);
   rawMaskCtx.fill();
+
   rawMaskCtx.globalCompositeOperation = "source-over";
 
   maskCtx.clearRect(0, 0, width, height);
@@ -303,6 +319,41 @@ function buildSkinMask(width, height) {
   return true;
 }
 
+function buildGlowLayer(width, height) {
+  glowCtx.clearRect(0, 0, width, height);
+
+  const faceOval = expandPolygon(getPolygon(FACE_OVAL, width, height), 0.96);
+  if (!faceOval.length) return;
+
+  const center = getPolygonCenter(faceOval);
+
+  glowCtx.save();
+  drawPolygonPath(glowCtx, faceOval);
+  glowCtx.clip();
+
+  const gradient = glowCtx.createRadialGradient(
+    center.x,
+    center.y - height * 0.05,
+    Math.max(20, width * 0.03),
+    center.x,
+    center.y,
+    Math.max(width, height) * 0.24
+  );
+
+  gradient.addColorStop(0, "rgba(255, 244, 232, 0.30)");
+  gradient.addColorStop(0.38, "rgba(255, 240, 224, 0.14)");
+  gradient.addColorStop(1, "rgba(255, 240, 224, 0)");
+
+  glowCtx.fillStyle = gradient;
+  glowCtx.fillRect(0, 0, width, height);
+  glowCtx.restore();
+
+  glowCtx.save();
+  glowCtx.globalCompositeOperation = "destination-in";
+  glowCtx.drawImage(maskCanvas, 0, 0, width, height);
+  glowCtx.restore();
+}
+
 function buildBeautyFrame(width, height) {
   sourceCtx.clearRect(0, 0, width, height);
   drawMirroredVideo(sourceCtx, width, height);
@@ -312,20 +363,33 @@ function buildBeautyFrame(width, height) {
 
   effectCtx.save();
   effectCtx.globalAlpha = EFFECT.smoothMix;
-  effectCtx.filter = `blur(${EFFECT.skinBlurPx}px) saturate(1.02) contrast(1.03)`;
+  effectCtx.filter = `blur(${EFFECT.skinBlurPx}px) saturate(1.015) contrast(1.015)`;
   effectCtx.drawImage(sourceCanvas, 0, 0, width, height);
   effectCtx.restore();
 
   effectCtx.save();
   effectCtx.globalAlpha = EFFECT.toneMix;
-  effectCtx.filter = "brightness(1.035) contrast(1.02) saturate(1.03)";
+  effectCtx.filter = "brightness(1.028) contrast(0.992) saturate(1.02)";
   effectCtx.drawImage(sourceCanvas, 0, 0, width, height);
   effectCtx.restore();
 
   effectCtx.save();
   effectCtx.globalAlpha = EFFECT.highlightMix;
-  effectCtx.filter = "brightness(1.06)";
+  effectCtx.filter = "brightness(1.05)";
   effectCtx.drawImage(sourceCanvas, 0, 0, width, height);
+  effectCtx.restore();
+
+  effectCtx.save();
+  effectCtx.globalAlpha = EFFECT.warmMix;
+  effectCtx.fillStyle = "rgba(255, 234, 214, 0.55)";
+  effectCtx.fillRect(0, 0, width, height);
+  effectCtx.restore();
+
+  buildGlowLayer(width, height);
+
+  effectCtx.save();
+  effectCtx.globalAlpha = EFFECT.glowMix;
+  effectCtx.drawImage(glowCanvas, 0, 0, width, height);
   effectCtx.restore();
 
   effectCtx.save();
@@ -341,12 +405,13 @@ function renderEffect() {
   }
 
   const { width, height } = getViewportSize();
-
   updateFaceDetection();
+
   ctx.clearRect(0, 0, width, height);
 
   if (smoothedLandmarks?.length) {
     const hasMask = buildSkinMask(width, height);
+
     if (hasMask) {
       buildBeautyFrame(width, height);
 
@@ -384,13 +449,14 @@ function onPointerMove(e) {
 }
 
 divider.addEventListener("pointerdown", startDrag);
-handle?.addEventListener("pointerdown", startDrag);
+handle.addEventListener("pointerdown", startDrag);
 
 document.addEventListener("pointermove", onPointerMove);
 document.addEventListener("pointerup", stopDrag);
 document.addEventListener("pointercancel", stopDrag);
 
 window.addEventListener("resize", resizeCanvas);
+
 if (window.visualViewport) {
   window.visualViewport.addEventListener("resize", resizeCanvas);
   window.visualViewport.addEventListener("scroll", resizeCanvas);

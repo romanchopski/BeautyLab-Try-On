@@ -4,12 +4,25 @@
   padding: 0;
 }
 
+:root {
+  --ui-text: rgba(255, 255, 255, 0.96);
+  --ui-soft-text: rgba(255, 255, 255, 0.78);
+  --ui-line: rgba(255, 255, 255, 0.18);
+  --ui-card: rgba(255, 255, 255, 0.12);
+  --ui-card-strong: rgba(255, 255, 255, 0.18);
+  --ui-btn-dark: rgba(255, 255, 255, 0.14);
+  --ui-btn-light: rgba(255, 255, 255, 0.96);
+  --ui-btn-light-text: #213040;
+  --shadow-soft: 0 10px 30px rgba(0, 0, 0, 0.24);
+  --shadow-strong: 0 12px 36px rgba(0, 0, 0, 0.32);
+}
+
 html,
 body {
   width: 100%;
   height: 100%;
   overflow: hidden;
-  background: black;
+  background: #000;
   font-family: Arial, sans-serif;
   touch-action: manipulation;
 }
@@ -24,7 +37,7 @@ body {
   height: 100vh;
   height: 100dvh;
   overflow: hidden;
-  background: black;
+  background: #000;
 }
 
 #video {
@@ -36,7 +49,7 @@ body {
   transform: scaleX(-1);
   transform-origin: center;
   z-index: 1;
-  background: black;
+  background: #000;
 }
 
 #effectCanvas {
@@ -48,17 +61,67 @@ body {
   z-index: 2;
 }
 
+#topBar {
+  position: absolute;
+  top: calc(env(safe-area-inset-top, 0px) + 16px);
+  left: 16px;
+  right: 16px;
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-start;
+  gap: 12px;
+  z-index: 30;
+  pointer-events: none;
+}
+
+#brandBlock {
+  max-width: 56%;
+  padding: 12px 14px;
+  border: 1px solid var(--ui-line);
+  border-radius: 18px;
+  background: rgba(255, 255, 255, 0.1);
+  backdrop-filter: blur(14px);
+  box-shadow: var(--shadow-soft);
+}
+
+#brandName {
+  color: var(--ui-text);
+  font-size: 17px;
+  font-weight: 700;
+  letter-spacing: 0.2px;
+}
+
+#brandSub {
+  margin-top: 4px;
+  color: var(--ui-soft-text);
+  font-size: 12px;
+  line-height: 1.3;
+}
+
+#previewBadge {
+  padding: 11px 14px;
+  border: 1px solid rgba(255, 255, 255, 0.2);
+  border-radius: 999px;
+  color: var(--ui-text);
+  font-size: 12px;
+  font-weight: 600;
+  white-space: nowrap;
+  background: rgba(255, 255, 255, 0.12);
+  backdrop-filter: blur(14px);
+  box-shadow: var(--shadow-soft);
+}
+
 #labelBefore,
 #labelAfter {
   position: absolute;
-  top: calc(env(safe-area-inset-top, 0px) + 20px);
-  z-index: 10;
+  top: calc(env(safe-area-inset-top, 0px) + 92px);
+  z-index: 12;
   color: white;
-  font-size: 16px;
+  font-size: 14px;
   font-weight: 600;
   opacity: 0.9;
   pointer-events: none;
-  text-shadow: 0 1px 4px rgba(0, 0, 0, 0.65);
+  text-shadow: 0 1px 6px rgba(0, 0, 0, 0.7);
 }
 
 #labelBefore {
@@ -88,10 +151,10 @@ body {
   position: absolute;
   top: 50%;
   left: 50%;
-  width: 46px;
-  height: 46px;
+  width: 48px;
+  height: 48px;
   border-radius: 50%;
-  background: rgba(255, 255, 255, 0.96);
+  background: rgba(255, 255, 255, 0.97);
   transform: translate(-50%, -50%);
   box-shadow: 0 4px 14px rgba(0, 0, 0, 0.32);
   backdrop-filter: blur(6px);
@@ -104,8 +167,8 @@ body {
   top: 50%;
   width: 7px;
   height: 7px;
-  border-top: 2px solid #444;
-  border-right: 2px solid #444;
+  border-top: 2px solid #4d5965;
+  border-right: 2px solid #4d5965;
 }
 
 #handle::before {
@@ -118,10 +181,117 @@ body {
   transform: translateY(-50%) rotate(45deg);
 }
 
+#bottomCard {
+  position: absolute;
+  left: 16px;
+  right: 16px;
+  bottom: calc(env(safe-area-inset-bottom, 0px) + 18px);
+  z-index: 28;
+  padding: 16px;
+  border: 1px solid var(--ui-line);
+  border-radius: 24px;
+  background: linear-gradient(
+    180deg,
+    rgba(255, 255, 255, 0.16) 0%,
+    rgba(255, 255, 255, 0.1) 100%
+  );
+  backdrop-filter: blur(16px);
+  box-shadow: var(--shadow-strong);
+  overflow: hidden;
+}
+
+#cardGlow {
+  position: absolute;
+  inset: auto -10% -30% auto;
+  width: 220px;
+  height: 220px;
+  border-radius: 50%;
+  background: radial-gradient(
+    circle,
+    rgba(255, 239, 223, 0.26) 0%,
+    rgba(255, 239, 223, 0.08) 38%,
+    rgba(255, 239, 223, 0) 72%
+  );
+  pointer-events: none;
+}
+
+#cardText {
+  position: relative;
+  z-index: 2;
+}
+
+#cardTitle {
+  color: var(--ui-text);
+  font-size: 20px;
+  font-weight: 700;
+  line-height: 1.15;
+  letter-spacing: 0.1px;
+}
+
+#cardDesc {
+  margin-top: 8px;
+  color: var(--ui-soft-text);
+  font-size: 14px;
+  line-height: 1.45;
+  max-width: 620px;
+}
+
+#cardActions {
+  position: relative;
+  z-index: 2;
+  display: flex;
+  gap: 10px;
+  margin-top: 16px;
+  flex-wrap: wrap;
+}
+
+.actionBtn {
+  min-height: 46px;
+  padding: 12px 18px;
+  border-radius: 999px;
+  text-decoration: none;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 14px;
+  font-weight: 700;
+  transition: transform 0.18s ease, opacity 0.18s ease, background 0.18s ease;
+  -webkit-tap-highlight-color: transparent;
+}
+
+.actionBtn:hover {
+  transform: translateY(-1px);
+}
+
+.actionBtn:active {
+  transform: translateY(0);
+}
+
+.actionBtn.primary {
+  color: var(--ui-btn-light-text);
+  background: var(--ui-btn-light);
+  box-shadow: 0 6px 18px rgba(255, 255, 255, 0.2);
+}
+
+.actionBtn.secondary {
+  color: var(--ui-text);
+  background: var(--ui-btn-dark);
+  border: 1px solid rgba(255, 255, 255, 0.16);
+}
+
+#legalNote {
+  position: relative;
+  z-index: 2;
+  margin-top: 12px;
+  color: rgba(255, 255, 255, 0.62);
+  font-size: 11px;
+  letter-spacing: 0.2px;
+}
+
 #hint {
   position: absolute;
   left: 50%;
-  bottom: calc(env(safe-area-inset-bottom, 0px) + 40px);
+  bottom: calc(env(safe-area-inset-bottom, 0px) + 182px);
   transform: translateX(-50%);
   z-index: 15;
   color: white;
@@ -137,4 +307,84 @@ body {
 
 #hint.hidden {
   opacity: 0;
+}
+
+@media (max-width: 720px) {
+  #brandBlock {
+    max-width: 62%;
+  }
+
+  #labelBefore,
+  #labelAfter {
+    top: calc(env(safe-area-inset-top, 0px) + 88px);
+    font-size: 13px;
+  }
+
+  #cardTitle {
+    font-size: 18px;
+  }
+
+  #cardDesc {
+    font-size: 13px;
+  }
+
+  #hint {
+    bottom: calc(env(safe-area-inset-bottom, 0px) + 196px);
+  }
+}
+
+@media (max-width: 520px) {
+  #topBar {
+    top: calc(env(safe-area-inset-top, 0px) + 12px);
+    left: 12px;
+    right: 12px;
+    gap: 8px;
+  }
+
+  #brandBlock {
+    padding: 10px 12px;
+    border-radius: 16px;
+  }
+
+  #brandName {
+    font-size: 15px;
+  }
+
+  #brandSub {
+    font-size: 11px;
+  }
+
+  #previewBadge {
+    padding: 10px 12px;
+    font-size: 11px;
+  }
+
+  #labelBefore,
+  #labelAfter {
+    top: calc(env(safe-area-inset-top, 0px) + 82px);
+  }
+
+  #bottomCard {
+    left: 12px;
+    right: 12px;
+    padding: 14px;
+    border-radius: 22px;
+  }
+
+  #cardTitle {
+    font-size: 17px;
+  }
+
+  #cardActions {
+    flex-direction: column;
+  }
+
+  .actionBtn {
+    width: 100%;
+  }
+
+  #hint {
+    bottom: calc(env(safe-area-inset-bottom, 0px) + 214px);
+    font-size: 13px;
+  }
 }

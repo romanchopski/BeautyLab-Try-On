@@ -5,11 +5,23 @@ import {
 
 const video = document.getElementById("video");
 const canvas = document.getElementById("effectCanvas");
-const ctx = canvas.getContext("2d");
+const ctx = canvas.getContext("2d", { alpha: true });
 
 const divider = document.getElementById("divider");
 const handle = document.getElementById("handle");
 const hint = document.getElementById("hint");
+
+const sourceCanvas = document.createElement("canvas");
+const sourceCtx = sourceCanvas.getContext("2d", { alpha: true });
+
+const effectCanvasOffscreen = document.createElement("canvas");
+const effectCtx = effectCanvasOffscreen.getContext("2d", { alpha: true });
+
+const maskCanvas = document.createElement("canvas");
+const maskCtx = maskCanvas.getContext("2d", { alpha: true });
+
+const rawMaskCanvas = document.createElement("canvas");
+const rawMaskCtx = rawMaskCanvas.getContext("2d", { alpha: true });
 
 let isDragging = false;
 let dividerX = window.innerWidth / 2;
@@ -18,6 +30,29 @@ let animationFrameId = null;
 let faceLandmarker = null;
 let lastFaceResult = null;
 let lastVideoTime = -1;
+let smoothedLandmarks = null;
+
+const FACE_OVAL = [
+  10, 338, 297, 332, 284, 251, 389, 356, 454, 323, 361, 288,
+  397, 365, 379, 378, 400, 377, 152, 148, 176, 149, 150, 136,
+  172, 58, 132, 93, 234, 127, 162, 21, 54, 103, 67, 109
+];
+
+const LEFT_EYE = [362, 382, 381, 380, 374, 373, 390, 249, 263, 466, 388, 387, 386, 385, 384, 398];
+const RIGHT_EYE = [33, 7, 163, 144, 145, 153, 154, 155, 133, 173, 157, 158, 159, 160, 161, 246];
+const OUTER_LIPS = [61, 146, 91, 181, 84, 17, 314, 405, 321, 375, 291, 308, 324, 318, 402, 317, 14, 87, 178, 88, 95, 185, 40, 39, 37, 0, 267, 269, 270, 409, 415, 310, 311, 312, 13, 82, 81, 42, 183, 78];
+
+const EFFECT = {
+  featherBlurPx: 14,
+  landmarkSmoothing: 0.72,
+  skinBlurPx: 2.4,
+  smoothMix: 0.34,
+  toneMix: 0.12,
+  highlightMix: 0.08,
+  maskExpand: 1.06,
+  eyeExpand: 1.22,
+  lipExpand: 1.10
+};
 
 function getViewportSize() {
   if (window.visualViewport) {
@@ -33,6 +68,11 @@ function getViewportSize() {
   };
 }
 
+function setCanvasSize(targetCanvas, width, height) {
+  targetCanvas.width = width;
+  targetCanvas.height = height;
+}
+
 function resizeCanvas() {
   const { width, height } = getViewportSize();
   const dpr = window.devicePixelRatio || 1;
@@ -41,8 +81,12 @@ function resizeCanvas() {
   canvas.height = Math.round(height * dpr);
   canvas.style.width = `${width}px`;
   canvas.style.height = `${height}px`;
-
   ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+
+  setCanvasSize(sourceCanvas, width, height);
+  setCanvasSize(effectCanvasOffscreen, width, height);
+  setCanvasSize(maskCanvas, width, height);
+  setCanvasSize(rawMaskCanvas, width, height);
 
   updateDivider(dividerX);
 }
@@ -54,11 +98,7 @@ function updateDivider(x) {
   divider.style.left = `${clampedX}px`;
 }
 
-function drawVideoCover(context, sourceVideo, destW, destH) {
-  const videoW = sourceVideo.videoWidth;
-  const videoH = sourceVideo.videoHeight;
-  if (!videoW || !videoH) return;
-
+function getCoverCrop(videoW, videoH, destW, destH) {
   const videoRatio = videoW / videoH;
   const destRatio = destW / destH;
 
@@ -75,11 +115,35 @@ function drawVideoCover(context, sourceVideo, destW, destH) {
     sy = (videoH - sHeight) / 2;
   }
 
+  return { sx, sy, sWidth, sHeight };
+}
+
+function drawVideoCover(context, sourceVideo, destW, destH) {
+  const videoW = sourceVideo.videoWidth;
+  const videoH = sourceVideo.videoHeight;
+  if (!videoW || !videoH) return;
+
+  const { sx, sy, sWidth, sHeight } = getCoverCrop(videoW, videoH, destW, destH);
+
   context.drawImage(
     sourceVideo,
-    sx, sy, sWidth, sHeight,
-    0, 0, destW, destH
+    sx,
+    sy,
+    sWidth,
+    sHeight,
+    0,
+    0,
+    destW,
+    destH
   );
+}
+
+function drawMirroredVideo(context, destW, destH) {
+  context.save();
+  context.translate(destW, 0);
+  context.scale(-1, 1);
+  drawVideoCover(context, video, destW, destH);
+  context.restore();
 }
 
 async function createFaceLandmarker() {
@@ -96,13 +160,13 @@ async function createFaceLandmarker() {
     numFaces: 1,
     outputFaceBlendshapes: false
   });
-
-  console.log("FaceLandmarker ready");
 }
 
 async function startCamera() {
   const stream = await navigator.mediaDevices.getUserMedia({
-    video: { facingMode: "user" },
+    video: {
+      facingMode: "user"
+    },
     audio: false
   });
 
@@ -119,7 +183,6 @@ async function startCamera() {
   await video.play();
   resizeCanvas();
   startRenderLoop();
-  console.log("Camera started");
 }
 
 function updateFaceDetection() {
@@ -129,43 +192,146 @@ function updateFaceDetection() {
 
   lastVideoTime = video.currentTime;
   lastFaceResult = faceLandmarker.detectForVideo(video, performance.now());
-}
 
-function getFaceRectOnCanvas(destW, destH) {
-  if (!lastFaceResult?.faceLandmarks?.length) return null;
-
-  const landmarks = lastFaceResult.faceLandmarks[0];
-
-  let minX = Infinity;
-  let minY = Infinity;
-  let maxX = -Infinity;
-  let maxY = -Infinity;
-
-  for (const p of landmarks) {
-    minX = Math.min(minX, p.x);
-    minY = Math.min(minY, p.y);
-    maxX = Math.max(maxX, p.x);
-    maxY = Math.max(maxY, p.y);
+  const landmarks = lastFaceResult?.faceLandmarks?.[0];
+  if (!landmarks?.length) {
+    smoothedLandmarks = null;
+    return;
   }
 
-  // Отражаем по X, потому что базовое видео зеркальное
-  const mirroredMinX = 1 - maxX;
-  const mirroredMaxX = 1 - minX;
+  if (!smoothedLandmarks || smoothedLandmarks.length !== landmarks.length) {
+    smoothedLandmarks = landmarks.map((p) => ({ x: p.x, y: p.y, z: p.z ?? 0 }));
+    return;
+  }
 
-  const x = mirroredMinX * destW;
-  const y = minY * destH;
-  const width = (mirroredMaxX - mirroredMinX) * destW;
-  const height = (maxY - minY) * destH;
+  const a = EFFECT.landmarkSmoothing;
+  const b = 1 - a;
 
-  const padX = width * 0.18;
-  const padY = height * 0.22;
+  for (let i = 0; i < landmarks.length; i++) {
+    smoothedLandmarks[i].x = smoothedLandmarks[i].x * a + landmarks[i].x * b;
+    smoothedLandmarks[i].y = smoothedLandmarks[i].y * a + landmarks[i].y * b;
+    smoothedLandmarks[i].z = (smoothedLandmarks[i].z ?? 0) * a + (landmarks[i].z ?? 0) * b;
+  }
+}
+
+function landmarkToCanvasPoint(landmark, destW, destH) {
+  const videoW = video.videoWidth;
+  const videoH = video.videoHeight;
+  if (!videoW || !videoH) return { x: 0, y: 0 };
+
+  const { sx, sy, sWidth, sHeight } = getCoverCrop(videoW, videoH, destW, destH);
+
+  const px = landmark.x * videoW;
+  const py = landmark.y * videoH;
+
+  const unmirroredX = ((px - sx) / sWidth) * destW;
+  const y = ((py - sy) / sHeight) * destH;
 
   return {
-    x: x - padX,
-    y: y - padY,
-    width: width + padX * 2,
-    height: height + padY * 2
+    x: destW - unmirroredX,
+    y
   };
+}
+
+function getPolygon(indices, width, height) {
+  if (!smoothedLandmarks?.length) return [];
+  return indices.map((index) => landmarkToCanvasPoint(smoothedLandmarks[index], width, height));
+}
+
+function getPolygonCenter(points) {
+  if (!points.length) return { x: 0, y: 0 };
+  let x = 0;
+  let y = 0;
+  for (const p of points) {
+    x += p.x;
+    y += p.y;
+  }
+  return { x: x / points.length, y: y / points.length };
+}
+
+function expandPolygon(points, scale = 1) {
+  if (!points.length || scale === 1) return points;
+  const center = getPolygonCenter(points);
+  return points.map((p) => ({
+    x: center.x + (p.x - center.x) * scale,
+    y: center.y + (p.y - center.y) * scale
+  }));
+}
+
+function drawPolygonPath(context, points) {
+  if (!points.length) return;
+  context.beginPath();
+  context.moveTo(points[0].x, points[0].y);
+  for (let i = 1; i < points.length; i++) {
+    context.lineTo(points[i].x, points[i].y);
+  }
+  context.closePath();
+}
+
+function buildSkinMask(width, height) {
+  rawMaskCtx.clearRect(0, 0, width, height);
+
+  const faceOval = expandPolygon(getPolygon(FACE_OVAL, width, height), EFFECT.maskExpand);
+  const leftEye = expandPolygon(getPolygon(LEFT_EYE, width, height), EFFECT.eyeExpand);
+  const rightEye = expandPolygon(getPolygon(RIGHT_EYE, width, height), EFFECT.eyeExpand);
+  const lips = expandPolygon(getPolygon(OUTER_LIPS, width, height), EFFECT.lipExpand);
+
+  if (!faceOval.length) {
+    maskCtx.clearRect(0, 0, width, height);
+    return false;
+  }
+
+  rawMaskCtx.fillStyle = "white";
+  drawPolygonPath(rawMaskCtx, faceOval);
+  rawMaskCtx.fill();
+
+  rawMaskCtx.globalCompositeOperation = "destination-out";
+  drawPolygonPath(rawMaskCtx, leftEye);
+  rawMaskCtx.fill();
+  drawPolygonPath(rawMaskCtx, rightEye);
+  rawMaskCtx.fill();
+  drawPolygonPath(rawMaskCtx, lips);
+  rawMaskCtx.fill();
+  rawMaskCtx.globalCompositeOperation = "source-over";
+
+  maskCtx.clearRect(0, 0, width, height);
+  maskCtx.save();
+  maskCtx.filter = `blur(${EFFECT.featherBlurPx}px)`;
+  maskCtx.drawImage(rawMaskCanvas, 0, 0, width, height);
+  maskCtx.restore();
+
+  return true;
+}
+
+function buildBeautyFrame(width, height) {
+  sourceCtx.clearRect(0, 0, width, height);
+  drawMirroredVideo(sourceCtx, width, height);
+
+  effectCtx.clearRect(0, 0, width, height);
+  effectCtx.drawImage(sourceCanvas, 0, 0, width, height);
+
+  effectCtx.save();
+  effectCtx.globalAlpha = EFFECT.smoothMix;
+  effectCtx.filter = `blur(${EFFECT.skinBlurPx}px) saturate(1.02) contrast(1.03)`;
+  effectCtx.drawImage(sourceCanvas, 0, 0, width, height);
+  effectCtx.restore();
+
+  effectCtx.save();
+  effectCtx.globalAlpha = EFFECT.toneMix;
+  effectCtx.filter = "brightness(1.035) contrast(1.02) saturate(1.03)";
+  effectCtx.drawImage(sourceCanvas, 0, 0, width, height);
+  effectCtx.restore();
+
+  effectCtx.save();
+  effectCtx.globalAlpha = EFFECT.highlightMix;
+  effectCtx.filter = "brightness(1.06)";
+  effectCtx.drawImage(sourceCanvas, 0, 0, width, height);
+  effectCtx.restore();
+
+  effectCtx.save();
+  effectCtx.globalCompositeOperation = "destination-in";
+  effectCtx.drawImage(maskCanvas, 0, 0, width, height);
+  effectCtx.restore();
 }
 
 function renderEffect() {
@@ -174,39 +340,24 @@ function renderEffect() {
     return;
   }
 
-  const { width: w, height: h } = getViewportSize();
+  const { width, height } = getViewportSize();
 
   updateFaceDetection();
+  ctx.clearRect(0, 0, width, height);
 
-  ctx.clearRect(0, 0, w, h);
+  if (smoothedLandmarks?.length) {
+    const hasMask = buildSkinMask(width, height);
+    if (hasMask) {
+      buildBeautyFrame(width, height);
 
-  // Правая часть after
-  ctx.save();
-  ctx.beginPath();
-  ctx.rect(dividerX, 0, w - dividerX, h);
-  ctx.clip();
-
-  const faceRect = getFaceRectOnCanvas(w, h);
-
-  if (faceRect) {
-    ctx.save();
-    ctx.beginPath();
-    ctx.rect(faceRect.x, faceRect.y, faceRect.width, faceRect.height);
-    ctx.clip();
-
-    ctx.filter = "blur(2px) brightness(1.05) contrast(1.06) saturate(1.06)";
-
-    // Зеркалим внутри canvas, чтобы совпадало с видео
-    ctx.save();
-    ctx.translate(w, 0);
-    ctx.scale(-1, 1);
-    drawVideoCover(ctx, video, w, h);
-    ctx.restore();
-
-    ctx.restore();
+      ctx.save();
+      ctx.beginPath();
+      ctx.rect(dividerX, 0, width - dividerX, height);
+      ctx.clip();
+      ctx.drawImage(effectCanvasOffscreen, 0, 0, width, height);
+      ctx.restore();
+    }
   }
-
-  ctx.restore();
 
   animationFrameId = requestAnimationFrame(renderEffect);
 }
@@ -253,7 +404,7 @@ async function init() {
   try {
     await createFaceLandmarker();
     await startCamera();
-    updateDivider(window.innerWidth / 2);
+    updateDivider(getViewportSize().width / 2);
   } catch (error) {
     console.error("Init error:", error);
     alert("Failed to initialize camera or face tracking. Open console for details.");
